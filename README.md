@@ -1,11 +1,33 @@
-# teste 
+# OpenStruct
 
-## teste 2
+descrição do projeto
 
-### teste 3
+## Acesso a API
 
-#### teste 4
+```python
+import requests
 
-##### teste 5
+json_data = {
+    'name': 'V1',
+    'bw': 30.0,
+    'h': 50.0,
+    'Vk': 100.0,
+    'gama_c': 1.4,
+    'gama_c2': 1.4,
+    'fywk': 500.0,
+    'gama_s': 1.15,
+    'fck': 30.0,
+    'stirrupLeg': 2
+}
 
-###### teste 6
+response = requests.post('http://167.114.5.192:8080/dim-cis', 
+                         json=json_data
+                         )
+print(response.text)
+
+
+
+
+
+
+

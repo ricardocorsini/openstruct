@@ -13,7 +13,12 @@ def index():
 
 @app.route('/dim-cis', methods=['POST', 'GET'])
 def dim_cis():
-    data = request.get_json()
+    
+    if request.method == 'GET':
+        data = request.args
+    elif request.method == 'POST':
+        data = request.get_json()
+
     name = data['name']
     bw = float(data['bw'])
     h = float(data['h'])
@@ -32,9 +37,15 @@ def dim_cis():
 
 @app.route('/concreto-prop', methods=['POST', 'GET'])
 def concreto_prop():
-    data = request.get_json()
+
+    if request.method == 'GET':
+        data = request.args
+    elif request.method == 'POST':
+        data = request.get_json()
+
+
     fck = float(data['fck'])  # Parâmetro obrigatório
-    
+
     # Parâmetros opcionais
     dias = float(data.get('dias', 28))
     gama_c = float(data.get('gama_c', 1.4))

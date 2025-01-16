@@ -1,7 +1,7 @@
 """
 Script desenvolvido no treinamento de Python para Engenharia Estrutural. 
-Autor: Eduardo XXXXXXXX (Aluno)
-github: XXXXXXXXXX
+Autor: Eduardo Bezerra (Aluno)
+github: https://github.com/engeduardob
 """
 
 #############################################################################################################################

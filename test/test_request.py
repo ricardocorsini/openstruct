@@ -1,19 +1,18 @@
+# 'http://167.114.5.192:8080/concreto-prop'
+
 import requests
 
 json_data = {
-    'name': 'V1',
-    'bw': 30.0,
-    'h': 50.0,
-    'Vk': 100.0,
-    'gama_c': 1.4,
-    'gama_c2': 1.4,
-    'fywk': 500.0,
-    'gama_s': 1.15,
-    'fck': 30.0,
-    'stirrupLeg': 2
+    'fck': 30,
+    'dias': 28, 
+    'gama_c': 1.4, 
+    'alfa_e': 0.8, 
+    'alfa_fator': 1.5, 
+    'epsilon_c': 0.002, 
+    'epsilon_t': 0.00015
 }
 
-response = requests.post('http://167.114.5.192:8080/dim-cis', 
+response = requests.post('http://localhost:8080/concreto-prop', 
                          json=json_data
                          )
 print(response.text)

@@ -73,3 +73,6 @@ docker-compose.override.yml
 # ======================
 *.sqlite3
 *.db
+
+# SSL certificates
+nginx/ssl/

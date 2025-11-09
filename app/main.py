@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from datetime import datetime
+from app.routers import desenho_router
 
 # ==========================================================
 # Configuração inicial da API
@@ -20,6 +21,11 @@ app = FastAPI(
         "url": "https://opensource.org/licenses/MIT",
     },
 )
+
+# ==========================================================
+# Registro dos routers
+# ==========================================================
+app.include_router(desenho_router.router, prefix="/desenho")
 
 
 # ==========================================================

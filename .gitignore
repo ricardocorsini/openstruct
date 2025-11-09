@@ -1,0 +1,75 @@
+# ======================
+# Ambientes virtuais
+# ======================
+myenv/
+myvenv/
+env/
+ENV/
+.venv/
+
+# ======================
+# Compilação Python
+# ======================
+__pycache__/
+*.py[cod]
+*$py.class
+
+# ======================
+# Logs e temporários
+# ======================
+*.log
+*.tmp
+*.swp
+*.swo
+
+# ======================
+# Cache e metadados
+# ======================
+*.DS_Store
+*.coverage
+.coverage.*
+.cache/
+pytest_cache/
+.mypy_cache/
+__pypackages__/
+
+# ======================
+# Configuração de editor
+# ======================
+.vscode/
+.idea/
+
+# ======================
+# Arquivos de build / dist
+# ======================
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# ======================
+# Arquivos sensíveis
+# ======================
+.env
+.env.*
+*.key
+*.pem
+
+# ======================
+# Docker
+# ======================
+*.pid
+*.tar
+docker-compose.override.yml
+
+# ======================
+# Arquivos binários pesados
+# ======================
+*.bin
+
+# ======================
+# FastAPI / Uvicorn
+# ======================
+*.sqlite3
+*.db

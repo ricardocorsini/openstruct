@@ -1,0 +1,79 @@
+# ======================
+# Arquivos e pastas de controle
+# ======================
+.git
+.gitignore
+.dockerignore
+.vscode
+.idea
+
+# ======================
+# Ambientes virtuais
+# ======================
+myenv
+myvenv
+env
+ENV
+.venv
+
+# ======================
+# Compilação Python
+# ======================
+__pycache__/
+*.py[cod]
+*$py.class
+
+# ======================
+# Cache e build
+# ======================
+*.log
+*.tmp
+*.swp
+*.swo
+*.bak
+.cache/
+pytest_cache/
+.mypy_cache/
+__pypackages__/
+.eggs/
+*.egg-info/
+build/
+dist/
+pip-wheel-metadata/
+
+# ======================
+# Arquivos sensíveis
+# ======================
+.env
+.env.*
+*.key
+*.pem
+
+# ======================
+# Dependências locais / libs pesadas
+# ======================
+*.whl
+*.tar.gz
+*.zip
+
+# ======================
+# Docker
+# ======================
+Dockerfile*
+docker-compose*
+*.pid
+
+# ======================
+# Dados temporários / bancos locais
+# ======================
+*.sqlite3
+*.db
+
+# ======================
+# Outros arquivos não necessários no container
+# ======================
+README.md
+LICENSE
+*.pdf
+*.docx
+*.rtf

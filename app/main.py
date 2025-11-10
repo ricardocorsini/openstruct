@@ -48,9 +48,9 @@ def home():
             "repositório": "https://github.com/ricardocorsini/openstruct",
         },
         "proximos_passos": [
-            "→ Use /ping para testar a conexão.",
-            "→ Explore /docs para conhecer os endpoints.",
-            "→ Contribua via Pull Request no GitHub."
+            "Use /ping para testar a conexão.",
+            "Explore /docs para conhecer os endpoints.",
+            "Contribua via Pull Request no GitHub."
         ],
     }
 

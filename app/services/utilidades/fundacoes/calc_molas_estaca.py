@@ -10,13 +10,12 @@ Módulo: Cálculo de molas horizontais de estacas (k_mola)
 Descrição:
     Implementa o cálculo das molas horizontais (k_mola, em tf/m) para análise 
     estrutural de apoios horizontais de estacas. O cálculo utiliza valores 
-    empíricos de m (tf/m³) associados ao SPT e ao tipo de solo.
+    empíricos de m (tf/m4) associados ao SPT e ao tipo de solo.
 
-    Fórmula utilizada:
-        k_mola = m * prof * área
+    Fonte da metodologia: https://docs.tqs.com.br/Docs/Details?id=3836&language=pt-BR
     
     Onde:
-        - m: coeficiente de reação horizontal do solo (tf/m³) obtido por tabela
+        - m: coeficiente de reação horizontal do solo (tf/m4) obtido por tabela
         - prof: profundidade do ponto considerado (m)
         - área: área de influência equivalente (m²), calculada como área = diâmetro * 1
     
@@ -152,7 +151,7 @@ class SoilAnalysisSystemAPI:
 
         linhas.append(
             f"{'Apoio':<10}{'Prof(m)':<12}{'Área(m²)':<12}{'Tipo Solo':<12}"
-            f"{'SPT':<8}{'m(tf/m³)':<12}{'kmola(tf/m)':<12}"
+            f"{'SPT':<8}{'m(tf/m4)':<12}{'kmola(tf/m)':<12}"
         )
         linhas.append("-" * 80)
 

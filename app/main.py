@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from datetime import datetime
-from app.routers import desenho_router, dim_conc_router
+from app.routers import desenho_router, dim_conc_router, utilidades_fund_router
 
 # ==========================================================
 # Configuração inicial da API
@@ -27,7 +27,7 @@ app = FastAPI(
 # ==========================================================
 app.include_router(desenho_router.router, prefix="/desenho")
 app.include_router(dim_conc_router.router, prefix="/dimensionamento")
-
+app.include_router(utilidades_fund_router.router, prefix="/utilidades")
 
 
 # ==========================================================

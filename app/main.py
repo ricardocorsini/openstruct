@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
 from app.routers import desenho_router, dim_conc_router, utilidades_fund_router
 

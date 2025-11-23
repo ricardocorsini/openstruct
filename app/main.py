@@ -23,6 +23,22 @@ app = FastAPI(
 )
 
 # ==========================================================
+# CONFIGURAÇÃO DE CORS (CORREÇÃO DO PROBLEMA)
+# ==========================================================
+
+origins = [
+    "*"               
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,      # Lista de origens permitidas
+    allow_credentials=True,     # Permitir cookies/auth headers
+    allow_methods=["*"],        # Permitir todos os métodos (GET, POST, OPTIONS, etc.)
+    allow_headers=["*"],        # Permitir todos os headers
+)
+
+# ==========================================================
 # Registro dos routers
 # ==========================================================
 app.include_router(desenho_router.router, prefix="/desenho")

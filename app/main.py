@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from datetime import datetime
-from app.routers import desenho_router, dim_conc_router, utilidades_fund_router
+from app.routers import desenho_router, dim_conc_router, utilidades_fund_router, consolo_router
 
 # ==========================================================
 # Configuração inicial da API
@@ -45,6 +45,7 @@ app.add_middleware(
 app.include_router(desenho_router.router, prefix="/desenho")
 app.include_router(dim_conc_router.router, prefix="/dimensionamento")
 app.include_router(utilidades_fund_router.router, prefix="/utilidades")
+app.include_router(consolo_router.router, prefix="/dimensionamento")
 
 
 # ==========================================================

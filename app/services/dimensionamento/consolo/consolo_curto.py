@@ -117,29 +117,7 @@ class ConsoloCurto:
 
     # --- EXPORTAÇÃO JSON (PARA API) ---
     def gerar_json(self) -> str:
-        """Exporta todos os dados de entrada e resultados detalhados para JSON."""
-        geom = self.calcular_geometria_biela()
-        arm = self.calcular_armaduras()
-        
-        data = {
-            "identificacao": self.nome,
-            "entradas": asdict(self),
-            "propriedades_calculo": {
-                "d_cm": self.d,
-                "vd_kn": self.vd,
-                "hd_kn": self.hd,
-                "fcd_kn_cm2": self.fcd,
-                "fcd1_kn_cm2": self.fcd1,
-                "fywd_kn_cm2": self.fywd
-            },
-            "geometria_biela": geom,
-            "armaduras": arm,
-            "verificacoes_finais": {
-                "biela_status": "OK" if geom.get("biela_ok") else "FALHA",
-                "ductilidade_status": "OK" if geom.get("ductilidade_ok") else "FALHA"
-            }
-        }
-        return json.dumps(data, indent=4, ensure_ascii=False)
+        return json.dumps(self.gerar_resultado(), indent=4, ensure_ascii=False)
 
     # --- GERAÇÃO DA MEMÓRIA DE CÁLCULO (TXT) ---
     def gerar_memoria_calculo(self) -> str:
@@ -239,6 +217,42 @@ class ConsoloCurto:
             })
 
         return sugestoes
+    
+    def gerar_resultado(self) -> Dict[str, Any]:
+        geom = self.calcular_geometria_biela()
+        arm = self.calcular_armaduras()
+
+        return {
+            "identificacao": self.nome,
+            "entradas": {
+                "nome": self.nome,
+                "bw": self.bw,
+                "h": self.h,
+                "d_linha": self.d_linha,
+                "dist_a": self.dist_a,
+                "vk": self.vk,
+                "hk": self.hk,
+                "fck": self.fck,
+                "fywk": self.fywk,
+                "gama_c": self.gama_c,
+                "gama_s": self.gama_s,
+                "gama_f": self.gama_f,
+            },
+            "propriedades_calculo": {
+                "d_cm": self.d,
+                "vd_kn": self.vd,
+                "hd_kn": self.hd,
+                "fcd_kn_cm2": self.fcd,
+                "fcd1_kn_cm2": self.fcd1,
+                "fywd_kn_cm2": self.fywd
+            },
+            "geometria_biela": geom,
+            "armaduras": arm,
+            "verificacoes_finais": {
+                "biela_status": "OK" if geom.get("biela_ok") else "FALHA",
+                "ductilidade_status": "OK" if geom.get("ductilidade_ok") else "FALHA"
+            }
+        }
 
 # --- EXECUÇÃO ---
 if __name__ == "__main__":

@@ -196,25 +196,50 @@ class ConsoloCurto:
     
     def sugerir_detalhamento(self, as_alvo: float, tipo: str = "tirante") -> List[Dict[str, Any]]:
         """
-        Converte cm² em sugestões para todas as bitolas, considerando 2 pernas por unidade.
+        Retorna sugestões comerciais estruturadas para apresentação em tabela.
+        - bitola_mm: bitola comercial
+        - area_barra_cm2: área de 1 barra
+        - quantidade_barras: desbitolamento direto da área de aço
+        - quantidade_lacos ou quantidade_estribos: barras/2, arredondado para cima
         """
-        bitolas = {
-            6.3: 0.312, 8.0: 0.503, 10.0: 0.785, 
-            12.5: 1.227, 16.0: 2.011, 20.0: 3.142
-        }
-        
-        sugestoes = []
-        # Define o rótulo com base no tipo
-        rotulo = "laços" if tipo == "tirante" else "estribos"
-        
-        for phi, area_unit in bitolas.items():
-            n_pernas = math.ceil(as_alvo / area_unit)
-            n_unidades = math.ceil(n_pernas / 2)
 
-            sugestoes.append({
-                "bitola": phi,
-                "texto": f"Bitola {phi} = {n_unidades} {rotulo} necessários",
-            })
+        bitolas = {
+            6.3: 0.312,
+            8.0: 0.503,
+            10.0: 0.785,
+            12.5: 1.227,
+            16.0: 2.011,
+            20.0: 3.142,
+        }
+
+        sugestoes = []
+
+        for phi, area_barra in bitolas.items():
+            quantidade_barras = max(1, math.ceil(as_alvo / area_barra))
+            quantidade_pecas = math.ceil(quantidade_barras / 2)
+
+            item = {
+                "bitola_mm": phi,
+                "area_barra_cm2": area_barra,
+                "area_aco_alvo_cm2": as_alvo,
+                "quantidade_barras": quantidade_barras,
+                "area_fornecida_cm2": quantidade_barras * area_barra,
+            }
+
+            if tipo == "tirante":
+                item["quantidade_lacos"] = quantidade_pecas
+                item["texto"] = (
+                    f"{quantidade_barras} barras Ø{phi} mm "
+                    f"({quantidade_pecas} laços)"
+                )
+            else:
+                item["quantidade_estribos"] = quantidade_pecas
+                item["texto"] = (
+                    f"{quantidade_barras} barras Ø{phi} mm "
+                    f"({quantidade_pecas} estribos)"
+                )
+
+            sugestoes.append(item)
 
         return sugestoes
     

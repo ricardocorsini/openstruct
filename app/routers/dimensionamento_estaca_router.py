@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+from time import perf_counter
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Body, HTTPException, status
@@ -20,6 +22,7 @@ from app.services.dimensionamento.estacas.flexo_compressao_obliqua import (
 
 
 router = APIRouter(tags=["Dimensionamento - Estacas"])
+logger = logging.getLogger("uvicorn.error")
 
 
 EXEMPLO_PCALC = {
@@ -49,7 +52,8 @@ EXEMPLO_PCALC = {
             {"quantidade_barras": 8, "diametro_barra_mm": 20.0},
         ],
         "espacamento_livre_minimo_mm": 20.0,
-        "pontos_diagrama": 72,
+        "pontos_diagrama": 36,
+        "pontos_contorno_secao": 64,
         "incluir_diagrama_recomendacao": True,
     },
 }
@@ -165,13 +169,13 @@ class CatalogoArmadurasFCOInput(BaseModel):
         ),
     )
     pontos_diagrama: int = Field(
-        48,
+        36,
         ge=24,
         le=180,
         description="Discretização angular do diagrama resistente biaxial.",
     )
     pontos_contorno_secao: int = Field(
-        96,
+        64,
         ge=48,
         le=256,
         description="Discretização poligonal da circunferência da estaca.",
@@ -242,6 +246,18 @@ class ErrorResponse(BaseModel):
 def verificar_flexo_compressao_obliqua(
     data: FlexoCompressaoObliquaInput = Body(..., examples=[EXEMPLO_PCALC]),
 ) -> Dict[str, Any]:
+    inicio = perf_counter()
+    quantidade_opcoes = len(data.catalogo.combinacoes_explicitas or [])
+    if not quantidade_opcoes:
+        quantidade_opcoes = (
+            len(data.catalogo.bitolas_longitudinais_mm)
+            * len(data.catalogo.quantidades_barras)
+        )
+    logger.info(
+        "Flexocompressao obliqua iniciada: %s combinacoes, %s pontos/diagrama.",
+        quantidade_opcoes,
+        data.catalogo.pontos_diagrama,
+    )
     try:
         combinacoes = tuple(
             (item.quantidade_barras, item.diametro_barra_mm)
@@ -309,7 +325,15 @@ def verificar_flexo_compressao_obliqua(
                 ),
             ),
         )
-        return servico.analisar()
+        resultado = servico.analisar()
+        duracao = perf_counter() - inicio
+        resultado["metodo"]["tempo_processamento_s"] = round(duracao, 3)
+        logger.info(
+            "Flexocompressao obliqua concluida em %.3f s: %s opcoes avaliadas.",
+            duracao,
+            len(resultado["opcoes"]),
+        )
+        return resultado
     except ErroFlexoCompressaoObliqua as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
@@ -325,6 +349,10 @@ def verificar_flexo_compressao_obliqua(
     except HTTPException:
         raise
     except Exception as exc:
+        logger.exception(
+            "Falha inesperada na flexocompressao obliqua apos %.3f s.",
+            perf_counter() - inicio,
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=(

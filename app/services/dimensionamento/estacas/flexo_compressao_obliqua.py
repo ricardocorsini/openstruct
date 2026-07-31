@@ -72,8 +72,8 @@ class CatalogoArmadurasFCO:
     quantidades_barras: Sequence[int]
     combinacoes_explicitas: Sequence[Tuple[int, float]] = ()
     espacamento_livre_minimo_mm: float = 20.0
-    pontos_diagrama: int = 48
-    pontos_contorno_secao: int = 96
+    pontos_diagrama: int = 36
+    pontos_contorno_secao: int = 64
     parar_na_primeira_opcao_por_bitola: bool = True
     incluir_diagrama_recomendacao: bool = True
 
@@ -109,7 +109,12 @@ class DimensionadorFlexoCompressaoObliqua:
                         material_aco=material_aco,
                         quantidade=quantidade,
                         bitola_mm=bitola,
-                        incluir_diagrama=False,
+                        # O contorno ja e calculado para obter a utilizacao.
+                        # Guardá-lo temporariamente evita recalcular toda a
+                        # alternativa recomendada ao final da analise.
+                        incluir_diagrama=(
+                            self.catalogo.incluir_diagrama_recomendacao
+                        ),
                     )
                     opcoes.append(opcao)
                     if opcao["atende"]:
@@ -130,12 +135,14 @@ class DimensionadorFlexoCompressaoObliqua:
                         material_aco=material_aco,
                         quantidade=quantidade,
                         bitola_mm=bitola,
-                        incluir_diagrama=False,
+                        incluir_diagrama=(
+                            self.catalogo.incluir_diagrama_recomendacao
+                        ),
                     )
                 )
 
         candidatas = [opcao for opcao in opcoes if opcao["atende"]]
-        recomendacao = min(
+        recomendacao_original = min(
             candidatas,
             key=lambda item: (
                 item["area_aco_total_cm2"],
@@ -146,17 +153,18 @@ class DimensionadorFlexoCompressaoObliqua:
         )
 
         diagrama_recomendacao: List[Dict[str, float]] = []
+        recomendacao = (
+            dict(recomendacao_original) if recomendacao_original else None
+        )
         if recomendacao and self.catalogo.incluir_diagrama_recomendacao:
-            detalhada = self._analisar_opcao(
-                deps=deps,
-                material_concreto=material_concreto,
-                material_aco=material_aco,
-                quantidade=recomendacao["quantidade_barras"],
-                bitola_mm=recomendacao["diametro_barra_mm"],
-                incluir_diagrama=True,
+            diagrama_recomendacao = recomendacao.pop(
+                "diagrama_mx_my_tf_m", []
             )
-            diagrama_recomendacao = detalhada.pop("diagrama_mx_my_tf_m")
-            recomendacao = detalhada
+
+        # Os contornos das demais alternativas sao dados temporarios. A API
+        # devolve somente o contorno recomendado para manter a resposta leve.
+        for opcao in opcoes:
+            opcao.pop("diagrama_mx_my_tf_m", None)
 
         resumo_por_bitola = self._resumir_por_bitola(
             opcoes=opcoes,

@@ -23,6 +23,7 @@ router = APIRouter(tags=["Interação Solo-Estrutura - Estacas"])
 EXEMPLO_REQUISICAO = {
     "comprimento_m": 6.0,
     "molas_horizontais_tf_m": [500.0, 750.0, 1000.0, 1250.0, 1500.0],
+    "mola_horizontal_ponta_tf_m": 1750.0,
     "material": {
         "modulo_elasticidade_tf_m2": 3000000.0,
         "coeficiente_poisson": 0.20,
@@ -106,7 +107,15 @@ class AnaliseEstacaInput(BaseModel):
         ...,
         description=(
             "Rigidezes das molas em DX, em tf/m, nas profundidades 1 m, 2 m, "
-            "3 m etc. Não informe mola no topo nem na ponta rígida."
+            "3 m etc. até o último nó interno. Não inclua topo nem ponta."
+        ),
+    )
+    mola_horizontal_ponta_tf_m: float = Field(
+        ...,
+        ge=0,
+        description=(
+            "Rigidez da mola horizontal em DX aplicada no nó da ponta (tf/m). "
+            "A ponta fica livre em X e impedida somente em Y."
         ),
     )
     material: MaterialEstacaInput
@@ -206,8 +215,9 @@ def _resolver_secao(secao: SecaoEstacaInput) -> PropriedadesSecao:
     description=(
         "Monta e resolve no PyNite uma estaca no plano XY, discretizada a cada "
         "metro. O topo é livre e recebe FX, MZ e força axial de compressão. "
-        "As molas atuam em DX nos nós internos e a ponta possui translações X "
-        "e Y impedidas, com rotação Z livre. Retorna esforços, deslocamentos, "
+        "As molas atuam em DX nos nós internos e também na ponta. A ponta "
+        "possui somente a translação Y impedida, ficando X e a rotação Z livres. "
+        "Retorna esforços, deslocamentos, "
         "reações e pontos prontos para os diagramas do frontend.\\n\\n"
         "**Unidades:** m, tf, tf.m, tf/m e tf/m²."
     ),
@@ -239,6 +249,9 @@ def analisar_estaca_ise(
         servico = AnaliseEstacaPyNite(
             comprimento_m=data.comprimento_m,
             molas_horizontais_tf_m=data.molas_horizontais_tf_m,
+            mola_horizontal_ponta_tf_m=(
+                data.mola_horizontal_ponta_tf_m
+            ),
             cargas=CargasTopo(
                 horizontal_x_tf=data.cargas_topo.horizontal_x_tf,
                 momento_z_tf_m=data.cargas_topo.momento_z_tf_m,

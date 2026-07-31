@@ -49,12 +49,13 @@ class AnaliseEstacaPyNite:
     - molas horizontais bilaterais no grau de liberdade DX;
     - carga axial positiva de entrada representa compressão e é aplicada em -FY;
     - momento positivo atua em +MZ;
-    - a ponta impede DX e DY e libera RZ;
+    - a ponta impede somente DY, recebe mola horizontal em DX e libera RZ;
     - DZ, RX e RY são impedidos em todos os nós para representar um problema 2D.
     """
 
     comprimento_m: float
     molas_horizontais_tf_m: Sequence[float]
+    mola_horizontal_ponta_tf_m: float
     cargas: CargasTopo
     modulo_elasticidade_tf_m2: float
     coeficiente_poisson: float
@@ -110,12 +111,15 @@ class AnaliseEstacaPyNite:
                 "numero_nos": len(profundidades),
                 "numero_elementos": len(nomes_elementos),
                 "profundidades_nos_m": profundidades,
-                "profundidades_molas_m": profundidades[1:-1],
+                "profundidades_molas_m": sorted(rigidezes),
                 "apoio_ponta": {
-                    "DX": "impedido",
+                    "DX": "livre com mola horizontal",
                     "DY": "impedido",
                     "RZ": "livre",
                 },
+                "mola_horizontal_ponta_tf_m": (
+                    self.mola_horizontal_ponta_tf_m
+                ),
             },
             "propriedades": {
                 "comprimento_m": self.comprimento_m,
@@ -149,6 +153,10 @@ class AnaliseEstacaPyNite:
                 (
                     "Como só foram informadas molas horizontais, a força axial é "
                     "transferida integralmente ao apoio vertical rígido da ponta."
+                ),
+                (
+                    "A ponta está livre em X e sua reação horizontal é fornecida "
+                    "pela mola horizontal informada para esse nó."
                 ),
                 (
                     "Valores repetidos na mesma profundidade representam os lados "
@@ -204,8 +212,8 @@ class AnaliseEstacaPyNite:
                 "Quantidade incorreta de molas. Para uma estaca de "
                 f"{self.comprimento_m:g} m são esperados "
                 f"{len(profundidades_esperadas)} valores, correspondentes às "
-                f"profundidades {profundidades_esperadas} m. O nó da ponta não "
-                "recebe mola porque possui apoio rígido em X e Y."
+                f"profundidades {profundidades_esperadas} m. A mola da ponta "
+                "deve ser informada separadamente."
             )
 
         for indice, rigidez in enumerate(self.molas_horizontais_tf_m, start=1):
@@ -214,6 +222,24 @@ class AnaliseEstacaPyNite:
                     "Toda rigidez de mola deve ser finita e maior ou igual a zero. "
                     f"Valor inválido no índice {indice - 1}."
                 )
+
+        if (
+            not math.isfinite(self.mola_horizontal_ponta_tf_m)
+            or self.mola_horizontal_ponta_tf_m < 0
+        ):
+            raise ErroModeloEstaca(
+                "mola_horizontal_ponta_tf_m deve ser finita e maior ou igual a zero."
+            )
+
+        todas_as_molas = [
+            *self.molas_horizontais_tf_m,
+            self.mola_horizontal_ponta_tf_m,
+        ]
+        if not any(rigidez > 0 for rigidez in todas_as_molas):
+            raise ErroModeloEstaca(
+                "Ao menos uma mola horizontal deve possuir rigidez maior que zero, "
+                "pois a ponta está livre na direção X."
+            )
 
     def _profundidades_internas(self) -> List[float]:
         limite = math.ceil(self.comprimento_m)
@@ -232,6 +258,9 @@ class AnaliseEstacaPyNite:
                 internas, self.molas_horizontais_tf_m
             )
         }
+        rigidezes[float(self.comprimento_m)] = float(
+            self.mola_horizontal_ponta_tf_m
+        )
         return profundidades, rigidezes
 
     def _modulo_cisalhamento(self) -> float:
@@ -307,7 +336,7 @@ class AnaliseEstacaPyNite:
         nome_ponta = f"N{len(profundidades) - 1}"
         modelo.def_support(
             nome_ponta,
-            support_DX=True,
+            support_DX=False,
             support_DY=True,
             support_DZ=True,
             support_RX=True,

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from time import perf_counter
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, Body, HTTPException, status
 from pydantic import BaseModel, Field
@@ -52,9 +52,12 @@ EXEMPLO_PCALC = {
             {"quantidade_barras": 8, "diametro_barra_mm": 20.0},
         ],
         "espacamento_livre_minimo_mm": 20.0,
-        "pontos_diagrama": 36,
-        "pontos_contorno_secao": 64,
+        "pontos_diagrama": 24,
+        "pontos_contorno_secao": 48,
         "incluir_diagrama_recomendacao": True,
+        "modo_verificacao": "direcional",
+        "tolerancia_angular_graus": 0.05,
+        "max_iteracoes_angulo": 8,
     },
 }
 
@@ -169,13 +172,16 @@ class CatalogoArmadurasFCOInput(BaseModel):
         ),
     )
     pontos_diagrama: int = Field(
-        36,
-        ge=24,
+        24,
+        ge=12,
         le=180,
-        description="Discretização angular do diagrama resistente biaxial.",
+        description=(
+            "Quantidade desejada de pontos no contorno visual. No modo "
+            "direcional, a simetria da armadura reduz as análises necessárias."
+        ),
     )
     pontos_contorno_secao: int = Field(
-        64,
+        48,
         ge=48,
         le=256,
         description="Discretização poligonal da circunferência da estaca.",
@@ -192,6 +198,25 @@ class CatalogoArmadurasFCOInput(BaseModel):
         description=(
             "Inclui o polígono Mx-My da alternativa recomendada, pronto para o frontend."
         ),
+    )
+    modo_verificacao: Literal["direcional", "diagrama_completo"] = Field(
+        "direcional",
+        description=(
+            "direcional usa poucas análises na direção de Mx/My; "
+            "diagrama_completo preserva o algoritmo original e é mais lento."
+        ),
+    )
+    tolerancia_angular_graus: float = Field(
+        0.05,
+        ge=0.001,
+        le=1.0,
+        description="Tolerância da busca pelo ângulo resistente no modo direcional.",
+    )
+    max_iteracoes_angulo: int = Field(
+        8,
+        ge=2,
+        le=20,
+        description="Máximo de soluções seccionais na busca angular por alternativa.",
     )
 
 
@@ -227,9 +252,11 @@ class ErrorResponse(BaseModel):
     summary="Verifica alternativas de armadura para estaca circular",
     description=(
         "Gera alternativas comerciais de armadura longitudinal e verifica cada "
-        "seção circular para Nsd, Mxsd e Mysd. O concreteproperties calcula o "
-        "diagrama biaxial no ELU; a openStruct filtra a geometria, calcula a "
-        "utilização radial e organiza a menor alternativa por bitola.\n\n"
+        "seção circular para Nsd, Mxsd e Mysd. No modo direcional, o "
+        "concreteproperties calcula somente as capacidades necessárias para "
+        "alinhar o momento resistente à solicitação; a openStruct filtra a "
+        "geometria, calcula a utilização e organiza a menor alternativa por "
+        "bitola. O modo diagrama_completo permanece disponível para auditoria.\n\n"
         "**Unidades de entrada:** diâmetro da estaca em m; cobrimento e barras "
         "em mm; resistências em MPa; força em tf; momentos em tf.m.\n\n"
         "O modelo NBR é parametrizado e auditável, pois a biblioteca não possui "
@@ -254,8 +281,9 @@ def verificar_flexo_compressao_obliqua(
             * len(data.catalogo.quantidades_barras)
         )
     logger.info(
-        "Flexocompressao obliqua iniciada: %s combinacoes, %s pontos/diagrama.",
+        "Flexocompressao obliqua iniciada: %s combinacoes, modo=%s, %s pontos.",
         quantidade_opcoes,
+        data.catalogo.modo_verificacao,
         data.catalogo.pontos_diagrama,
     )
     try:
@@ -323,6 +351,11 @@ def verificar_flexo_compressao_obliqua(
                 incluir_diagrama_recomendacao=(
                     data.catalogo.incluir_diagrama_recomendacao
                 ),
+                modo_verificacao=data.catalogo.modo_verificacao,
+                tolerancia_angular_graus=(
+                    data.catalogo.tolerancia_angular_graus
+                ),
+                max_iteracoes_angulo=data.catalogo.max_iteracoes_angulo,
             ),
         )
         resultado = servico.analisar()

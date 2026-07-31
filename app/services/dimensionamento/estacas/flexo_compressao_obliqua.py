@@ -72,10 +72,13 @@ class CatalogoArmadurasFCO:
     quantidades_barras: Sequence[int]
     combinacoes_explicitas: Sequence[Tuple[int, float]] = ()
     espacamento_livre_minimo_mm: float = 20.0
-    pontos_diagrama: int = 36
-    pontos_contorno_secao: int = 64
+    pontos_diagrama: int = 24
+    pontos_contorno_secao: int = 48
     parar_na_primeira_opcao_por_bitola: bool = True
     incluir_diagrama_recomendacao: bool = True
+    modo_verificacao: str = "direcional"
+    tolerancia_angular_graus: float = 0.05
+    max_iteracoes_angulo: int = 8
 
 
 @dataclass
@@ -93,6 +96,10 @@ class DimensionadorFlexoCompressaoObliqua:
 
         opcoes: List[Dict[str, Any]] = []
         interrompidas_por_bitola: Dict[float, int] = {}
+        incluir_diagrama_durante_catalogo = (
+            self.catalogo.incluir_diagrama_recomendacao
+            and self.catalogo.modo_verificacao == "diagrama_completo"
+        )
 
         if modo_catalogo == "grade":
             por_bitola: Dict[float, List[int]] = {}
@@ -109,12 +116,7 @@ class DimensionadorFlexoCompressaoObliqua:
                         material_aco=material_aco,
                         quantidade=quantidade,
                         bitola_mm=bitola,
-                        # O contorno ja e calculado para obter a utilizacao.
-                        # Guardá-lo temporariamente evita recalcular toda a
-                        # alternativa recomendada ao final da analise.
-                        incluir_diagrama=(
-                            self.catalogo.incluir_diagrama_recomendacao
-                        ),
+                        incluir_diagrama=incluir_diagrama_durante_catalogo,
                     )
                     opcoes.append(opcao)
                     if opcao["atende"]:
@@ -135,9 +137,7 @@ class DimensionadorFlexoCompressaoObliqua:
                         material_aco=material_aco,
                         quantidade=quantidade,
                         bitola_mm=bitola,
-                        incluir_diagrama=(
-                            self.catalogo.incluir_diagrama_recomendacao
-                        ),
+                        incluir_diagrama=incluir_diagrama_durante_catalogo,
                     )
                 )
 
@@ -157,9 +157,23 @@ class DimensionadorFlexoCompressaoObliqua:
             dict(recomendacao_original) if recomendacao_original else None
         )
         if recomendacao and self.catalogo.incluir_diagrama_recomendacao:
-            diagrama_recomendacao = recomendacao.pop(
-                "diagrama_mx_my_tf_m", []
-            )
+            if self.catalogo.modo_verificacao == "diagrama_completo":
+                diagrama_recomendacao = recomendacao.pop(
+                    "diagrama_mx_my_tf_m", []
+                )
+            else:
+                detalhada = self._analisar_opcao(
+                    deps=deps,
+                    material_concreto=material_concreto,
+                    material_aco=material_aco,
+                    quantidade=recomendacao["quantidade_barras"],
+                    bitola_mm=recomendacao["diametro_barra_mm"],
+                    incluir_diagrama=True,
+                )
+                diagrama_recomendacao = detalhada.pop(
+                    "diagrama_mx_my_tf_m", []
+                )
+                recomendacao = detalhada
 
         # Os contornos das demais alternativas sao dados temporarios. A API
         # devolve somente o contorno recomendado para manter a resposta leve.
@@ -192,7 +206,16 @@ class DimensionadorFlexoCompressaoObliqua:
                     "nao e um modulo NBR oficial do concreteproperties"
                 ),
                 "criterio_atendimento": (
-                    "ponto (Mxd, Myd) dentro do diagrama biaxial para Nsd"
+                    "capacidade resistente na direcao de (Mxd, Myd) para Nsd"
+                    if self.catalogo.modo_verificacao == "direcional"
+                    else "ponto (Mxd, Myd) dentro do diagrama biaxial para Nsd"
+                ),
+                "modo_verificacao": self.catalogo.modo_verificacao,
+                "otimizacao_secao_circular": (
+                    "busca direcional do angulo da linha neutra e expansao "
+                    "do contorno pela simetria da armadura"
+                    if self.catalogo.modo_verificacao == "direcional"
+                    else None
                 ),
                 "criterio_recomendacao": (
                     "menor area de aco entre as candidatas avaliadas que atendem"
@@ -252,6 +275,11 @@ class DimensionadorFlexoCompressaoObliqua:
                     self.catalogo.espacamento_livre_minimo_mm
                 ),
                 "pontos_diagrama": self.catalogo.pontos_diagrama,
+                "modo_verificacao": self.catalogo.modo_verificacao,
+                "tolerancia_angular_graus": (
+                    self.catalogo.tolerancia_angular_graus
+                ),
+                "max_iteracoes_angulo": self.catalogo.max_iteracoes_angulo,
                 "parar_na_primeira_opcao_por_bitola": (
                     self.catalogo.parar_na_primeira_opcao_por_bitola
                     if modo_catalogo == "grade"
@@ -280,8 +308,10 @@ class DimensionadorFlexoCompressaoObliqua:
                     "x fck/gamma_c e fyd = fyk/gamma_s, mostrados na resposta."
                 ),
                 (
-                    "A utilizacao e obtida pela intersecao radial do vetor de "
-                    "momentos solicitantes com o poligono resistente discretizado."
+                    "No modo direcional, a utilizacao e obtida na direcao exata "
+                    "do vetor solicitante apos convergencia do angulo resistente. "
+                    "No modo diagrama_completo, usa-se a intersecao radial com "
+                    "o poligono resistente discretizado."
                 ),
                 (
                     "Valide os resultados com casos independentes antes do uso "
@@ -362,13 +392,30 @@ class DimensionadorFlexoCompressaoObliqua:
                 "Esta rota nao cobre flexotracao."
             )
 
-        if not 24 <= self.catalogo.pontos_diagrama <= 180:
+        if self.catalogo.modo_verificacao not in {
+            "direcional",
+            "diagrama_completo",
+        }:
             raise ErroFlexoCompressaoObliqua(
-                "pontos_diagrama deve estar entre 24 e 180."
+                "modo_verificacao deve ser 'direcional' ou 'diagrama_completo'."
+            )
+        if not 12 <= self.catalogo.pontos_diagrama <= 180:
+            raise ErroFlexoCompressaoObliqua(
+                "pontos_diagrama deve estar entre 12 e 180."
             )
         if not 48 <= self.catalogo.pontos_contorno_secao <= 256:
             raise ErroFlexoCompressaoObliqua(
                 "pontos_contorno_secao deve estar entre 48 e 256."
+            )
+        if not math.isfinite(self.catalogo.tolerancia_angular_graus) or not (
+            0.001 <= self.catalogo.tolerancia_angular_graus <= 1.0
+        ):
+            raise ErroFlexoCompressaoObliqua(
+                "tolerancia_angular_graus deve estar entre 0,001 e 1 grau."
+            )
+        if not 2 <= self.catalogo.max_iteracoes_angulo <= 20:
+            raise ErroFlexoCompressaoObliqua(
+                "max_iteracoes_angulo deve estar entre 2 e 20."
             )
 
     def _combinacoes(self) -> Tuple[List[Tuple[int, float]], str]:
@@ -575,59 +622,91 @@ class DimensionadorFlexoCompressaoObliqua:
                 n=8,
             )
             secao_concreto = deps["ConcreteSection"](secao_geometrica)
-            resultado = secao_concreto.biaxial_bending_diagram(
-                n=self.esforcos.normal_compressao_sd_tf * TF_PARA_N,
-                n_points=self.catalogo.pontos_diagrama,
-                progress_bar=False,
-            )
-            mx_n_mm, my_n_mm = resultado.get_results_lists()
-            contorno_n_mm = fechar_poligono(
-                [(float(mx), float(my)) for mx, my in zip(mx_n_mm, my_n_mm)]
-            )
             demanda_n_mm = (
                 self.esforcos.momento_x_sd_tf_m * TF_M_PARA_N_MM,
                 self.esforcos.momento_y_sd_tf_m * TF_M_PARA_N_MM,
             )
-            intersecao = intersecao_raio_poligono(
-                demanda=demanda_n_mm,
-                poligono=contorno_n_mm,
-            )
-            atende_biblioteca = bool(
-                resultado.point_in_diagram(
-                    m_x=demanda_n_mm[0],
-                    m_y=demanda_n_mm[1],
-                )
-            )
+            normal_n = self.esforcos.normal_compressao_sd_tf * TF_PARA_N
 
-            if math.hypot(*demanda_n_mm) <= TOLERANCIA:
-                utilizacao = 0.0
-                fator_reserva = None
-                momento_resistente = None
-                ponto_resistente = None
-            elif intersecao is None:
-                utilizacao = None
-                fator_reserva = None
-                momento_resistente = None
-                ponto_resistente = None
-            else:
-                fator_reserva = intersecao["fator_escala"]
-                utilizacao = 1.0 / fator_reserva if fator_reserva > 0 else None
-                ponto_resistente = {
-                    "mx_rd_tf_m": intersecao["ponto"][0] / TF_M_PARA_N_MM,
-                    "my_rd_tf_m": intersecao["ponto"][1] / TF_M_PARA_N_MM,
-                }
-                momento_resistente = math.hypot(*intersecao["ponto"]) / (
-                    TF_M_PARA_N_MM
+            if self.catalogo.modo_verificacao == "direcional":
+                avaliacao = avaliar_capacidade_direcional(
+                    secao_concreto=secao_concreto,
+                    normal_n=normal_n,
+                    demanda_n_mm=demanda_n_mm,
+                    tolerancia_angular_rad=math.radians(
+                        self.catalogo.tolerancia_angular_graus
+                    ),
+                    max_iteracoes=self.catalogo.max_iteracoes_angulo,
                 )
+                if not avaliacao["convergiu"]:
+                    raise FalhaAnaliseSecao(
+                        "A busca direcional nao convergiu: erro angular final "
+                        f"de {avaliacao['erro_angular_graus']:.6f} grau(s). "
+                        "Tente aumentar max_iteracoes_angulo ou use "
+                        "modo_verificacao='diagrama_completo'."
+                    )
+                erro_diagrama = None
+                contorno_n_mm: List[Tuple[float, float]] = []
+                if incluir_diagrama:
+                    try:
+                        contorno_n_mm = gerar_diagrama_biaxial_por_simetria(
+                            secao_concreto=secao_concreto,
+                            normal_n=normal_n,
+                            quantidade_barras=quantidade,
+                            pontos_desejados=self.catalogo.pontos_diagrama,
+                        )
+                    except Exception as exc_diagrama:
+                        # A verificacao direcional continua valida mesmo se a
+                        # construcao opcional do contorno visual falhar.
+                        erro_diagrama = str(exc_diagrama)
+            else:
+                erro_diagrama = None
+                avaliacao = avaliar_por_diagrama_completo(
+                    secao_concreto=secao_concreto,
+                    normal_n=normal_n,
+                    demanda_n_mm=demanda_n_mm,
+                    pontos_diagrama=self.catalogo.pontos_diagrama,
+                )
+                contorno_n_mm = avaliacao.pop("contorno_n_mm")
+
+            ponto_resistente_n_mm = avaliacao["ponto_resistente_n_mm"]
+            ponto_resistente = (
+                {
+                    "mx_rd_tf_m": (
+                        ponto_resistente_n_mm[0] / TF_M_PARA_N_MM
+                    ),
+                    "my_rd_tf_m": (
+                        ponto_resistente_n_mm[1] / TF_M_PARA_N_MM
+                    ),
+                }
+                if ponto_resistente_n_mm is not None
+                else None
+            )
+            momento_resistente = (
+                avaliacao["momento_resistente_n_mm"] / TF_M_PARA_N_MM
+                if avaliacao["momento_resistente_n_mm"] is not None
+                else None
+            )
 
             base.update(
                 {
-                    "status": "atende" if atende_biblioteca else "nao_atende",
-                    "atende": atende_biblioteca,
-                    "utilizacao": utilizacao,
-                    "fator_reserva_radial": fator_reserva,
+                    "status": "atende" if avaliacao["atende"] else "nao_atende",
+                    "atende": avaliacao["atende"],
+                    "utilizacao": avaliacao["utilizacao"],
+                    "fator_reserva_radial": avaliacao["fator_reserva"],
                     "momento_resistente_direcao_tf_m": momento_resistente,
                     "ponto_resistente_direcao_tf_m": ponto_resistente,
+                    "angulo_linha_neutra_graus": avaliacao.get(
+                        "angulo_linha_neutra_graus"
+                    ),
+                    "angulo_momento_resistente_graus": avaliacao.get(
+                        "angulo_momento_resistente_graus"
+                    ),
+                    "erro_angular_graus": avaliacao.get(
+                        "erro_angular_graus"
+                    ),
+                    "iteracoes_angulo": avaliacao.get("iteracoes_angulo"),
+                    "erro_diagrama_recomendacao": erro_diagrama,
                 }
             )
             if incluir_diagrama:
@@ -698,6 +777,253 @@ class DimensionadorFlexoCompressaoObliqua:
                 }
             )
         return resumo
+
+
+def normalizar_angulo_rad(angulo: float) -> float:
+    """Normaliza um angulo para o intervalo [-pi, pi)."""
+
+    return (angulo + math.pi) % (2.0 * math.pi) - math.pi
+
+
+def avaliar_capacidade_direcional(
+    *,
+    secao_concreto: Any,
+    normal_n: float,
+    demanda_n_mm: Tuple[float, float],
+    tolerancia_angular_rad: float,
+    max_iteracoes: int,
+) -> Dict[str, Any]:
+    """Busca a capacidade com vetor de momento paralelo ao vetor solicitante.
+
+    ``ultimate_bending_capacity`` recebe o angulo da linha neutra, que nao e,
+    em geral, exatamente o angulo do momento resistente. A busca abaixo ajusta
+    esse angulo por secante, evitando gerar o contorno biaxial completo para
+    cada alternativa comercial.
+    """
+
+    demanda_modulo = math.hypot(*demanda_n_mm)
+    if demanda_modulo <= TOLERANCIA:
+        # A chamada ainda valida se a forca normal pertence ao dominio da secao.
+        secao_concreto.ultimate_bending_capacity(theta=0.0, n=normal_n)
+        return {
+            "convergiu": True,
+            "atende": True,
+            "utilizacao": 0.0,
+            "fator_reserva": None,
+            "momento_resistente_n_mm": None,
+            "ponto_resistente_n_mm": None,
+            "angulo_linha_neutra_graus": None,
+            "angulo_momento_resistente_graus": None,
+            "erro_angular_graus": 0.0,
+            "iteracoes_angulo": 1,
+        }
+
+    angulo_demanda = math.atan2(demanda_n_mm[1], demanda_n_mm[0])
+    theta = angulo_demanda
+    theta_anterior: Optional[float] = None
+    erro_anterior: Optional[float] = None
+    melhor: Optional[Dict[str, Any]] = None
+    convergiu = False
+
+    for indice in range(1, max_iteracoes + 1):
+        theta_avaliado = normalizar_angulo_rad(theta)
+        resultado = secao_concreto.ultimate_bending_capacity(
+            theta=theta_avaliado,
+            n=normal_n,
+        )
+        mx = float(resultado.m_x)
+        my = float(resultado.m_y)
+        angulo_resistente = math.atan2(my, mx)
+        erro = normalizar_angulo_rad(angulo_resistente - angulo_demanda)
+        projecao = (
+            mx * math.cos(angulo_demanda) + my * math.sin(angulo_demanda)
+        )
+
+        candidato = {
+            "mx": mx,
+            "my": my,
+            "theta": theta_avaliado,
+            "angulo_resistente": angulo_resistente,
+            "erro": erro,
+            "projecao": projecao,
+            "iteracoes": indice,
+        }
+        if projecao > 0 and (
+            melhor is None or abs(erro) < abs(melhor["erro"])
+        ):
+            melhor = candidato
+
+        if projecao > 0 and abs(erro) <= tolerancia_angular_rad:
+            melhor = candidato
+            convergiu = True
+            break
+
+        if (
+            theta_anterior is not None
+            and erro_anterior is not None
+            and abs(erro - erro_anterior) > 1e-12
+        ):
+            passo = -erro * (theta - theta_anterior) / (
+                erro - erro_anterior
+            )
+        else:
+            # Para uma secao circular, d(angulo_momento)/d(theta) fica
+            # proximo de 1. Este e um bom primeiro passo para a secante.
+            passo = -erro
+
+        limite_passo = math.pi / 3.0
+        passo = max(-limite_passo, min(limite_passo, passo))
+        theta_anterior = theta
+        erro_anterior = erro
+        theta += passo
+
+    if melhor is None:
+        return {
+            "convergiu": False,
+            "erro_angular_graus": 180.0,
+            "iteracoes_angulo": max_iteracoes,
+        }
+
+    erro_final = abs(melhor["erro"])
+    if erro_final <= tolerancia_angular_rad:
+        convergiu = True
+
+    momento_resistente = melhor["projecao"]
+    if momento_resistente <= TOLERANCIA:
+        return {
+            "convergiu": False,
+            "erro_angular_graus": math.degrees(erro_final),
+            "iteracoes_angulo": melhor["iteracoes"],
+        }
+
+    versor = (
+        demanda_n_mm[0] / demanda_modulo,
+        demanda_n_mm[1] / demanda_modulo,
+    )
+    ponto_resistente = (
+        versor[0] * momento_resistente,
+        versor[1] * momento_resistente,
+    )
+    fator_reserva = momento_resistente / demanda_modulo
+    utilizacao = 1.0 / fator_reserva
+
+    return {
+        "convergiu": convergiu,
+        "atende": utilizacao <= 1.0 + 1e-9,
+        "utilizacao": utilizacao,
+        "fator_reserva": fator_reserva,
+        "momento_resistente_n_mm": momento_resistente,
+        "ponto_resistente_n_mm": ponto_resistente,
+        "angulo_linha_neutra_graus": math.degrees(melhor["theta"]),
+        "angulo_momento_resistente_graus": math.degrees(
+            melhor["angulo_resistente"]
+        ),
+        "erro_angular_graus": math.degrees(erro_final),
+        "iteracoes_angulo": melhor["iteracoes"],
+    }
+
+
+def gerar_diagrama_biaxial_por_simetria(
+    *,
+    secao_concreto: Any,
+    normal_n: float,
+    quantidade_barras: int,
+    pontos_desejados: int,
+) -> List[Tuple[float, float]]:
+    """Gera o contorno usando a simetria da estaca e da camada circular.
+
+    Uma camada de ``n`` barras iguais e uniformemente espacadas repete sua
+    resposta a cada 2*pi/n. Calculam-se apenas os pontos de um setor e os demais
+    sao obtidos por rotacao vetorial.
+    """
+
+    repeticoes = max(3, int(quantidade_barras))
+    pontos_setor = max(2, math.ceil(pontos_desejados / repeticoes))
+    angulo_setor = 2.0 * math.pi / repeticoes
+    pontos: List[Tuple[float, float]] = []
+
+    for indice in range(pontos_setor):
+        theta = indice * angulo_setor / pontos_setor
+        resultado = secao_concreto.ultimate_bending_capacity(
+            theta=theta,
+            n=normal_n,
+        )
+        mx_base = float(resultado.m_x)
+        my_base = float(resultado.m_y)
+
+        for repeticao in range(repeticoes):
+            giro = repeticao * angulo_setor
+            cos_giro = math.cos(giro)
+            sin_giro = math.sin(giro)
+            pontos.append(
+                (
+                    mx_base * cos_giro - my_base * sin_giro,
+                    mx_base * sin_giro + my_base * cos_giro,
+                )
+            )
+
+    pontos.sort(key=lambda ponto: math.atan2(ponto[1], ponto[0]))
+    return fechar_poligono(pontos)
+
+
+def avaliar_por_diagrama_completo(
+    *,
+    secao_concreto: Any,
+    normal_n: float,
+    demanda_n_mm: Tuple[float, float],
+    pontos_diagrama: int,
+) -> Dict[str, Any]:
+    """Mantem o algoritmo original como modo de auditoria mais demorado."""
+
+    resultado = secao_concreto.biaxial_bending_diagram(
+        n=normal_n,
+        n_points=pontos_diagrama,
+        progress_bar=False,
+    )
+    mx_n_mm, my_n_mm = resultado.get_results_lists()
+    contorno_n_mm = fechar_poligono(
+        [(float(mx), float(my)) for mx, my in zip(mx_n_mm, my_n_mm)]
+    )
+    intersecao = intersecao_raio_poligono(
+        demanda=demanda_n_mm,
+        poligono=contorno_n_mm,
+    )
+    atende = bool(
+        resultado.point_in_diagram(
+            m_x=demanda_n_mm[0],
+            m_y=demanda_n_mm[1],
+        )
+    )
+
+    if math.hypot(*demanda_n_mm) <= TOLERANCIA:
+        utilizacao = 0.0
+        fator_reserva = None
+        momento_resistente = None
+        ponto_resistente = None
+    elif intersecao is None:
+        utilizacao = None
+        fator_reserva = None
+        momento_resistente = None
+        ponto_resistente = None
+    else:
+        fator_reserva = intersecao["fator_escala"]
+        utilizacao = 1.0 / fator_reserva if fator_reserva > 0 else None
+        ponto_resistente = intersecao["ponto"]
+        momento_resistente = math.hypot(*ponto_resistente)
+
+    return {
+        "convergiu": True,
+        "atende": atende,
+        "utilizacao": utilizacao,
+        "fator_reserva": fator_reserva,
+        "momento_resistente_n_mm": momento_resistente,
+        "ponto_resistente_n_mm": ponto_resistente,
+        "contorno_n_mm": contorno_n_mm,
+        "angulo_linha_neutra_graus": None,
+        "angulo_momento_resistente_graus": None,
+        "erro_angular_graus": None,
+        "iteracoes_angulo": pontos_diagrama,
+    }
 
 
 def avaliar_geometria_armadura_circular(

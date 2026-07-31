@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.routers import (
     consolo_router,
     desenho_router,
+    dimensionamento_estaca_router,
     dim_conc_router,
     interacao_solo_estrutura_router,
     utilidades_fund_router,
@@ -44,6 +45,7 @@ app.include_router(desenho_router.router, prefix="/desenho")
 app.include_router(dim_conc_router.router, prefix="/dimensionamento")
 app.include_router(utilidades_fund_router.router, prefix="/utilidades")
 app.include_router(consolo_router.router, prefix="/dimensionamento")
+app.include_router(dimensionamento_estaca_router.router, prefix="/dimensionamento")
 app.include_router(interacao_solo_estrutura_router.router, prefix="/ise")
 
 
@@ -81,4 +83,3 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run("app.main:app", host="127.0.0.1", port=8000, reload=True)
-

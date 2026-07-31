@@ -1,0 +1,334 @@
+"""Rotas de dimensionamento estrutural de estacas."""
+
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional
+
+from fastapi import APIRouter, Body, HTTPException, status
+from pydantic import BaseModel, Field
+
+from app.services.dimensionamento.estacas.flexo_compressao_obliqua import (
+    CatalogoArmadurasFCO,
+    DependenciaConcretePropertiesAusente,
+    DimensionadorFlexoCompressaoObliqua,
+    ErroFlexoCompressaoObliqua,
+    EsforcosFCO,
+    FalhaAnaliseSecao,
+    MateriaisFCO,
+    SecaoCircularFCO,
+)
+
+
+router = APIRouter(tags=["Dimensionamento - Estacas"])
+
+
+EXEMPLO_PCALC = {
+    "secao": {
+        "diametro_estaca_m": 0.40,
+        "cobrimento_nominal_mm": 40.0,
+        "diametro_armadura_transversal_mm": 6.3,
+        "angulo_inicial_barras_graus": 0.0,
+    },
+    "materiais": {
+        "fck_mpa": 30.0,
+        "fyk_mpa": 500.0,
+        "gamma_c": 1.40,
+        "gamma_s": 1.15,
+        "fator_reducao_concreto": 0.85,
+    },
+    "esforcos": {
+        "normal_compressao_sd_tf": 35.0,
+        "momento_x_sd_tf_m": 5.0,
+        "momento_y_sd_tf_m": 3.0,
+    },
+    "catalogo": {
+        "combinacoes_explicitas": [
+            {"quantidade_barras": 6, "diametro_barra_mm": 16.0},
+            {"quantidade_barras": 8, "diametro_barra_mm": 16.0},
+            {"quantidade_barras": 10, "diametro_barra_mm": 16.0},
+            {"quantidade_barras": 8, "diametro_barra_mm": 20.0},
+        ],
+        "espacamento_livre_minimo_mm": 20.0,
+        "pontos_diagrama": 72,
+        "incluir_diagrama_recomendacao": True,
+    },
+}
+
+
+class SecaoCircularFCOInput(BaseModel):
+    diametro_estaca_m: float = Field(
+        ...,
+        gt=0,
+        description="Diâmetro externo da seção circular maciça da estaca (m).",
+    )
+    cobrimento_nominal_mm: float = Field(
+        40.0,
+        ge=0,
+        description=(
+            "Distância da face do concreto à face externa da armadura "
+            "transversal (mm)."
+        ),
+    )
+    diametro_armadura_transversal_mm: float = Field(
+        6.3,
+        ge=0,
+        description=(
+            "Diâmetro do estribo ou espiral considerado para posicionar o "
+            "eixo das barras longitudinais (mm)."
+        ),
+    )
+    angulo_inicial_barras_graus: float = Field(
+        0.0,
+        description=(
+            "Ângulo da primeira barra longitudinal em relação ao eixo +X. "
+            "É devolvido para permitir reproduzir exatamente o modelo."
+        ),
+    )
+
+
+class MateriaisFCOInput(BaseModel):
+    fck_mpa: float = Field(
+        ...,
+        ge=20,
+        le=50,
+        description=(
+            "Resistência característica do concreto (MPa). A primeira versão "
+            "é limitada a 50 MPa."
+        ),
+    )
+    fyk_mpa: float = Field(500.0, gt=0, description="fyk do aço (MPa).")
+    gamma_c: float = Field(1.40, gt=0, description="Coeficiente γc.")
+    gamma_s: float = Field(1.15, gt=0, description="Coeficiente γs.")
+    fator_reducao_concreto: float = Field(
+        0.85,
+        gt=0,
+        le=1,
+        description=(
+            "Fator multiplicador de fck/γc usado no diagrama de cálculo. "
+            "Valor default: 0,85."
+        ),
+    )
+    modulo_elasticidade_aco_mpa: float = Field(200_000.0, gt=0)
+    modulo_elasticidade_concreto_mpa: Optional[float] = Field(None, gt=0)
+    deformacao_concreto_inicio_patamar: float = Field(0.002, gt=0)
+    deformacao_ultima_concreto: float = Field(0.0035, gt=0)
+    expoente_parabola_concreto: float = Field(2.0, gt=0)
+    deformacao_ultima_aco: float = Field(0.010, gt=0)
+
+
+class EsforcosFCOInput(BaseModel):
+    normal_compressao_sd_tf: float = Field(
+        ...,
+        ge=0,
+        description="Força normal de cálculo; compressão positiva (tf).",
+    )
+    momento_x_sd_tf_m: float = Field(
+        ...,
+        description="Momento solicitante de cálculo em torno de X (tf.m).",
+    )
+    momento_y_sd_tf_m: float = Field(
+        ...,
+        description="Momento solicitante de cálculo em torno de Y (tf.m).",
+    )
+
+
+class CombinacaoArmaduraInput(BaseModel):
+    quantidade_barras: int = Field(..., ge=3, le=40)
+    diametro_barra_mm: float = Field(..., gt=0, le=50)
+
+
+class CatalogoArmadurasFCOInput(BaseModel):
+    bitolas_longitudinais_mm: List[float] = Field(
+        default_factory=lambda: [10.0, 12.5, 16.0, 20.0, 25.0, 32.0],
+        description=(
+            "Bitolas avaliadas quando combinacoes_explicitas não for informado."
+        ),
+    )
+    quantidades_barras: List[int] = Field(
+        default_factory=lambda: [6, 8, 10, 12, 14, 16, 18, 20],
+        description=(
+            "Quantidades avaliadas para cada bitola no modo de grade."
+        ),
+    )
+    combinacoes_explicitas: Optional[List[CombinacaoArmaduraInput]] = Field(
+        None,
+        description=(
+            "Lista exata de alternativas. Quando informada, substitui a grade "
+            "bitolas × quantidades e todas as alternativas são analisadas."
+        ),
+    )
+    espacamento_livre_minimo_mm: float = Field(
+        20.0,
+        gt=0,
+        description=(
+            "Espaçamento livre mínimo usado apenas no filtro geométrico (mm)."
+        ),
+    )
+    pontos_diagrama: int = Field(
+        48,
+        ge=24,
+        le=180,
+        description="Discretização angular do diagrama resistente biaxial.",
+    )
+    pontos_contorno_secao: int = Field(
+        96,
+        ge=48,
+        le=256,
+        description="Discretização poligonal da circunferência da estaca.",
+    )
+    parar_na_primeira_opcao_por_bitola: bool = Field(
+        True,
+        description=(
+            "No modo grade, interrompe cada bitola na primeira quantidade que "
+            "atende. Reduz o tempo de resposta."
+        ),
+    )
+    incluir_diagrama_recomendacao: bool = Field(
+        True,
+        description=(
+            "Inclui o polígono Mx-My da alternativa recomendada, pronto para o frontend."
+        ),
+    )
+
+
+class FlexoCompressaoObliquaInput(BaseModel):
+    secao: SecaoCircularFCOInput
+    materiais: MateriaisFCOInput
+    esforcos: EsforcosFCOInput
+    catalogo: CatalogoArmadurasFCOInput = Field(
+        default_factory=CatalogoArmadurasFCOInput
+    )
+
+
+class FlexoCompressaoObliquaResult(BaseModel):
+    sistema_unidades: Dict[str, str]
+    metodo: Dict[str, Any]
+    secao: Dict[str, Any]
+    materiais: Dict[str, Any]
+    esforcos_solicitantes: Dict[str, Any]
+    catalogo: Dict[str, Any]
+    opcoes: List[Dict[str, Any]]
+    resumo_por_bitola: List[Dict[str, Any]]
+    recomendacao: Optional[Dict[str, Any]]
+    diagrama_recomendacao_mx_my_tf_m: List[Dict[str, float]]
+    avisos: List[str]
+
+
+class ErrorResponse(BaseModel):
+    detail: str
+
+
+@router.post(
+    "/estacas/flexo-compressao-obliqua",
+    summary="Verifica alternativas de armadura para estaca circular",
+    description=(
+        "Gera alternativas comerciais de armadura longitudinal e verifica cada "
+        "seção circular para Nsd, Mxsd e Mysd. O concreteproperties calcula o "
+        "diagrama biaxial no ELU; a openStruct filtra a geometria, calcula a "
+        "utilização radial e organiza a menor alternativa por bitola.\n\n"
+        "**Unidades de entrada:** diâmetro da estaca em m; cobrimento e barras "
+        "em mm; resistências em MPa; força em tf; momentos em tf.m.\n\n"
+        "O modelo NBR é parametrizado e auditável, pois a biblioteca não possui "
+        "módulo oficial da NBR 6118."
+    ),
+    response_model=FlexoCompressaoObliquaResult,
+    responses={
+        400: {"model": ErrorResponse, "description": "Dados incompatíveis."},
+        422: {"model": ErrorResponse, "description": "Falha da análise seccional."},
+        503: {"model": ErrorResponse, "description": "Dependência ausente."},
+        500: {"model": ErrorResponse, "description": "Erro interno."},
+    },
+)
+def verificar_flexo_compressao_obliqua(
+    data: FlexoCompressaoObliquaInput = Body(..., examples=[EXEMPLO_PCALC]),
+) -> Dict[str, Any]:
+    try:
+        combinacoes = tuple(
+            (item.quantidade_barras, item.diametro_barra_mm)
+            for item in (data.catalogo.combinacoes_explicitas or [])
+        )
+        servico = DimensionadorFlexoCompressaoObliqua(
+            secao=SecaoCircularFCO(
+                diametro_m=data.secao.diametro_estaca_m,
+                cobrimento_nominal_mm=data.secao.cobrimento_nominal_mm,
+                diametro_armadura_transversal_mm=(
+                    data.secao.diametro_armadura_transversal_mm
+                ),
+                angulo_inicial_barras_graus=(
+                    data.secao.angulo_inicial_barras_graus
+                ),
+            ),
+            materiais=MateriaisFCO(
+                fck_mpa=data.materiais.fck_mpa,
+                fyk_mpa=data.materiais.fyk_mpa,
+                gamma_c=data.materiais.gamma_c,
+                gamma_s=data.materiais.gamma_s,
+                fator_reducao_concreto=(
+                    data.materiais.fator_reducao_concreto
+                ),
+                modulo_elasticidade_aco_mpa=(
+                    data.materiais.modulo_elasticidade_aco_mpa
+                ),
+                modulo_elasticidade_concreto_mpa=(
+                    data.materiais.modulo_elasticidade_concreto_mpa
+                ),
+                deformacao_concreto_inicio_patamar=(
+                    data.materiais.deformacao_concreto_inicio_patamar
+                ),
+                deformacao_ultima_concreto=(
+                    data.materiais.deformacao_ultima_concreto
+                ),
+                expoente_parabola_concreto=(
+                    data.materiais.expoente_parabola_concreto
+                ),
+                deformacao_ultima_aco=data.materiais.deformacao_ultima_aco,
+            ),
+            esforcos=EsforcosFCO(
+                normal_compressao_sd_tf=(
+                    data.esforcos.normal_compressao_sd_tf
+                ),
+                momento_x_sd_tf_m=data.esforcos.momento_x_sd_tf_m,
+                momento_y_sd_tf_m=data.esforcos.momento_y_sd_tf_m,
+            ),
+            catalogo=CatalogoArmadurasFCO(
+                bitolas_longitudinais_mm=(
+                    data.catalogo.bitolas_longitudinais_mm
+                ),
+                quantidades_barras=data.catalogo.quantidades_barras,
+                combinacoes_explicitas=combinacoes,
+                espacamento_livre_minimo_mm=(
+                    data.catalogo.espacamento_livre_minimo_mm
+                ),
+                pontos_diagrama=data.catalogo.pontos_diagrama,
+                pontos_contorno_secao=data.catalogo.pontos_contorno_secao,
+                parar_na_primeira_opcao_por_bitola=(
+                    data.catalogo.parar_na_primeira_opcao_por_bitola
+                ),
+                incluir_diagrama_recomendacao=(
+                    data.catalogo.incluir_diagrama_recomendacao
+                ),
+            ),
+        )
+        return servico.analisar()
+    except ErroFlexoCompressaoObliqua as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+    except DependenciaConcretePropertiesAusente as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
+    except FalhaAnaliseSecao as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=(
+                "Erro inesperado ao verificar a flexocompressao obliqua: "
+                f"{exc}"
+            ),
+        ) from exc

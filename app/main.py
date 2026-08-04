@@ -13,6 +13,25 @@ from app.routers import (
 )
 
 
+tags_metadata = [
+    {
+        "name": "Dimensionamento - Vigas de Concreto Armado",
+        "description": (
+            "Rotas de dimensionamento de vigas de concreto armado, incluindo "
+            "cisalhamento e flexão simples de seções retangulares."
+        ),
+    },
+    {
+        "name": "Início",
+        "description": "Informações gerais e links da API.",
+    },
+    {
+        "name": "Utilitários",
+        "description": "Rotas auxiliares para diagnóstico da API.",
+    },
+]
+
+
 app = FastAPI(
     title="openStruct",
     description=(
@@ -29,6 +48,7 @@ app = FastAPI(
         "name": "MIT License",
         "url": "https://opensource.org/licenses/MIT",
     },
+    openapi_tags=tags_metadata,
 )
 
 origins = ["*"]
@@ -42,7 +62,12 @@ app.add_middleware(
 )
 
 app.include_router(desenho_router.router, prefix="/desenho")
+
+# Este router registra:
+# POST /dimensionamento/vigas/cisalhamento
+# POST /dimensionamento/vigas/flexao
 app.include_router(dim_conc_router.router, prefix="/dimensionamento")
+
 app.include_router(utilidades_fund_router.router, prefix="/utilidades")
 app.include_router(consolo_router.router, prefix="/dimensionamento")
 app.include_router(dimensionamento_estaca_router.router, prefix="/dimensionamento")

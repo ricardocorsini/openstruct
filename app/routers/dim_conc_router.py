@@ -35,6 +35,30 @@ class BeamInput(BaseModel):
         alias="stirrupLeg",
         description="Número de ramos do estribo (2, 4 etc.)",
     )
+    considerar_flexocompressao: bool = Field(
+        False,
+        alias="considerarFlexocompressao",
+        description=(
+            "Quando verdadeiro, corrige a contribuição do concreto Vc para "
+            "flexocompressão conforme Vc = Vc0(1 + M0/MSd,max), limitado a 2Vc0."
+        ),
+    )
+    N0: Optional[float] = Field(
+        None,
+        ge=0,
+        description=(
+            "Força normal de compressão concomitante com VSd, em kN, usada para "
+            "determinar M0 com gamma_f = 1,0. Informar como módulo positivo."
+        ),
+    )
+    MSd_max: Optional[float] = Field(
+        None,
+        gt=0,
+        alias="MSdMax",
+        description=(
+            "Valor absoluto do momento fletor de cálculo máximo no trecho analisado, em kN.m."
+        ),
+    )
 
     class Config:
         allow_population_by_field_name = True
@@ -176,8 +200,12 @@ class ErrorResponse(BaseModel):
     "/vigas/cisalhamento",
     summary="Dimensionamento ao esforço cortante - Modelo I",
     description=(
-        "Executa o dimensionamento de vigas de concreto armado ao esforço cortante "
-        "pelo Modelo I. Unidades: bw e h em cm; Vk em kN; fck e fywk em MPa."
+        "Executa o dimensionamento de elementos retangulares de concreto armado ao "
+        "esforço cortante pelo Modelo I. Por padrão, utiliza Vc = Vc0. Opcionalmente, "
+        "pode considerar flexocompressão, calculando M0 = N0.h/6 para a seção retangular "
+        "e Vc = Vc0(1 + M0/MSd,max), limitado a 2Vc0.\n\n"
+        "**Unidades:** bw e h em cm; Vk e N0 em kN; MSd,max em kN.m; "
+        "fck e fywk em MPa. Para N0, a tensão normal deve ser avaliada com gamma_f = 1,0."
     ),
     response_model=BeamResult,
     responses={
@@ -200,6 +228,7 @@ def dimensionar_viga_cisalhamento(
             "gama_s": 1.15,
             "fck": 30,
             "stirrupLeg": 2,
+            "considerarFlexocompressao": False,
         },
     ),
 ):
@@ -212,6 +241,22 @@ def dimensionar_viga_cisalhamento(
                 detail="Todos os parâmetros geométricos e resistentes devem ser positivos.",
             )
 
+        if data.considerar_flexocompressao:
+            if data.N0 is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        "Para considerar flexocompressão, informe N0 em kN "
+                        "(força normal concomitante com VSd, com gamma_f = 1,0)."
+                    ),
+                )
+
+            if data.MSd_max is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Para considerar flexocompressão, informe MSdMax em kN.m.",
+                )
+
         beam = Beam(
             name=data.name,
             bw=data.bw,
@@ -223,6 +268,9 @@ def dimensionar_viga_cisalhamento(
             gama_s=data.gama_s,
             fck=data.fck,
             stirrup_leg=data.stirrup_leg,
+            considerar_flexocompressao=data.considerar_flexocompressao,
+            N0=data.N0,
+            MSd_max=data.MSd_max,
         )
         return {
             "viga": data.name,
